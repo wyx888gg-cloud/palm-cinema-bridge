@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Palm City Twitch Bridge</title>
+  <style>
+    html,body,#twitch-player{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+    body{position:fixed;inset:0}
+    #status{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;background:#000;font-family:Arial,sans-serif;font-size:18px;z-index:5;text-align:center;padding:24px}
+    #status.hidden{display:none}
+    iframe{border:0!important;width:100%!important;height:100%!important;position:absolute!important;inset:0!important}
+  </style>
+</head>
+<body>
+  <div id="twitch-player"></div>
+  <div id="status">Palm City Twitch Bridge<br>等待直播網址…</div>
+
+  <script src="https://player.twitch.tv/js/embed/v1.js"></script>
+  <script>
+    (() => {
+      const qs = new URLSearchParams(location.search);
+      const channelRaw = (qs.get('channel') || '').trim();
+      const videoRaw = (qs.get('video') || '').trim();
+      const muted = qs.get('muted') === '1' || qs.get('muted') === 'true';
+      const volumeRaw = Number(qs.get('volume'));
+      const status = document.getElementById('status');
+
+      function cleanChannel(v) {
+        return v.replace(/^https?:\/\/(www\.)?twitch\.tv\//i, '')
+                .replace(/[?#].*$/, '')
+                .replace(/^\/+|\/+$/g, '')
+                .split('/')[0];
+      }
+
+      function cleanVideo(v) {
+        const m = String(v).match(/(?:videos\/|^)(\d+)/i);
+        return m ? 'v' + m[1] : '';
+      }
+
+      const channel = cleanChannel(channelRaw);
+      const video = cleanVideo(videoRaw);
+
+      if (!channel && !video) {
+        status.innerHTML = 'Palm City Twitch Bridge<br>缺少 channel 或 video 參數';
+        return;
+      }
+
+      const options = {
+        width: '100%',
+        height: '100%',
+        parent: [location.hostname],
+        autoplay: true,
+        muted: muted
+      };
+
+      if (channel) options.channel = channel;
+      if (video) options.video = video;
+
+      try {
+        const player = new Twitch.Player('twitch-player', options);
+
+        player.addEventListener(Twitch.Player.READY, () => {
+          status.classList.add('hidden');
+
+          try {
+            player.setMuted(muted);
+            if (Number.isFinite(volumeRaw)) {
+              player.setVolume(Math.max(0, Math.min(1, volumeRaw)));
+            }
+
+            setTimeout(() => {
+              try {
+                const qualities = player.getQualities ? player.getQualities() : [];
+                if (Array.isArray(qualities) && qualities.length) {
+                  const q360 = qualities.find(q => /360p/i.test(q.name || q.group || ''));
+                  const q480 = qualities.find(q => /480p/i.test(q.name || q.group || ''));
+                  const target = q360 || q480;
+                  if (target && player.setQuality) player.setQuality(target.group || target.name);
+                }
+              } catch (_) {}
+            }, 1200);
+          } catch (_) {}
+        });
+
+        player.addEventListener(Twitch.Player.ONLINE, () => status.classList.add('hidden'));
+        player.addEventListener(Twitch.Player.OFFLINE, () => {
+          status.classList.remove('hidden');
+          status.innerHTML = '目前頻道離線';
+        });
+        player.addEventListener(Twitch.Player.PLAYBACK_BLOCKED, () => {
+          status.classList.remove('hidden');
+          status.innerHTML = '瀏覽器阻擋自動播放<br>請嘗試 muted=1';
+        });
+      } catch (e) {
+        status.classList.remove('hidden');
+        status.innerHTML = 'Twitch Player 建立失敗<br>' + String(e);
+      }
+    })();
+  </script>
+</body>
+</html>
